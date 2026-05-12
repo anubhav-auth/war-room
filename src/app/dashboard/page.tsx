@@ -6,7 +6,7 @@ import HotLeads from '@/components/dashboard/HotLeads'
 export default async function DashboardPage() {
   const supabase = await createClient()
 
-  const { data: contacts } = await supabase
+  const { data: contacts } = await (supabase as any)
     .from('contacts')
     .select('*, companies(*), generated_messages(*)')
     .eq('outcome', 'active')
