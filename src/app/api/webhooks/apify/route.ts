@@ -41,7 +41,7 @@ export async function POST(req: Request) {
       const profileUrl = firstItem.authorUrl
       if (!profileUrl) return NextResponse.json({ error: 'No profile URL in post data' }, { status: 400 })
 
-      const { data: contact } = await supabase
+      const { data: contact } = await (supabase as any)
         .from('contacts')
         .select('id, user_id')
         .eq('linkedin_url', profileUrl)
@@ -57,16 +57,16 @@ export async function POST(req: Request) {
           comments: p.numComments
         }))
 
-        await supabase
+        await (supabase as any)
           .from('linkedin_profiles')
           .update({ recent_posts })
-          .eq('contact_id', contact.id)
+          .eq('contact_id', (contact as any).id)
 
         // Regenerate messages with new post context
         await fetch(`${req.headers.get('origin')}/api/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contactId: contact.id, userId: contact.user_id }),
+          body: JSON.stringify({ contactId: (contact as any).id, userId: (contact as any).user_id }),
         })
 
         return NextResponse.json({ success: true, type: 'posts' })
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     const profileUrl = result.linkedinUrl || result.url
     
     // Check if it's a contact first
-    const { data: contact } = await supabase
+    const { data: contact } = await (supabase as any)
       .from('contacts')
       .select('id, user_id, email')
       .eq('linkedin_url', profileUrl)
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
 
     if (contact) {
       // 2.1 Handle/Create Company for this contact automatically
-      let companyId = contact.company_id
+      let companyId = (contact as any).company_id
       
       if (!companyId && result.companyLinkedin) {
         const companyUrl = result.companyLinkedin.startsWith('http') 
@@ -93,29 +93,29 @@ export async function POST(req: Request) {
           : `https://www.linkedin.com/company/${result.companyLinkedin.split('/').pop()}`
 
         // Check if company exists by URL
-        const { data: existingCompany } = await supabase
+        const { data: existingCompany } = await (supabase as any)
           .from('companies')
           .select('id')
           .eq('linkedin_url', companyUrl)
           .single()
 
         if (existingCompany) {
-          companyId = existingCompany.id
+          companyId = (existingCompany as any).id
         } else {
           // Create new company automatically
-          const { data: newCompany } = await supabase
+          const { data: newCompany } = await (supabase as any)
             .from('companies')
             .insert({
               name: result.companyName || 'Unknown Company',
               linkedin_url: companyUrl,
-              user_id: contact.user_id,
+              user_id: (contact as any).user_id,
               website_url: result.companyWebsite
             })
             .select()
             .single()
           
           if (newCompany) {
-            companyId = newCompany.id
+            companyId = (newCompany as any).id
             // Trigger enrichment for the brand new company
             const { triggerCompanyScrape } = await import('@/lib/scraping/apify')
             triggerCompanyScrape(companyUrl).catch(err => console.error('Failed to trigger auto company scrape:', err))
@@ -124,13 +124,13 @@ export async function POST(req: Request) {
 
         // Link contact to company if not already linked
         if (companyId) {
-          await supabase.from('contacts').update({ company_id: companyId }).eq('id', contact.id)
+          await (supabase as any).from('contacts').update({ company_id: companyId }).eq('id', (contact as any).id)
         }
       }
 
       // Handle Contact Scraping
       const profileData = {
-        contact_id: contact.id,
+        contact_id: (contact as any).id,
         headline: result.headline,
         about: result.summary || result.about,
         current_company_description: result.currentJobDescription,
@@ -141,15 +141,15 @@ export async function POST(req: Request) {
         scraped_at: new Date().toISOString(),
       }
 
-      await supabase.from('linkedin_profiles').upsert(profileData)
+      await (supabase as any).from('linkedin_profiles').upsert(profileData)
 
       // 3. Handle Email Discovery
       const discoveredEmail = result.email || (result.contacts && result.contacts[0] && result.contacts[0].email)
       
       if (discoveredEmail) {
         // Add to permutations for verification
-        await supabase.from('email_permutations').upsert({
-          contact_id: contact.id,
+        await (supabase as any).from('email_permutations').upsert({
+          contact_id: (contact as any).id,
           email: discoveredEmail,
           status: 'pending',
           metadata: { source: 'apify' }
@@ -159,7 +159,7 @@ export async function POST(req: Request) {
         fetch(`${req.headers.get('origin')}/api/emails/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contactId: contact.id, userId: contact.user_id }),
+          body: JSON.stringify({ contactId: (contact as any).id, userId: (contact as any).user_id }),
         }).catch(err => console.error('Failed to trigger permutations:', err))
       }
 
@@ -174,7 +174,7 @@ export async function POST(req: Request) {
     }
 
     // Check if it's a company
-    const { data: company } = await supabase
+    const { data: company } = await (supabase as any)
       .from('companies')
       .select('id, user_id')
       .eq('linkedin_url', profileUrl)
@@ -183,8 +183,8 @@ export async function POST(req: Request) {
     if (company) {
       // Handle Company Scraping
       const companyData = {
-        company_id: company.id,
-        user_id: company.user_id,
+        company_id: (company as any).id,
+        user_id: (company as any).user_id,
         name: result.name || result.companyName,
         industry: result.industry,
         website: result.website || result.companyWebsite,
@@ -199,13 +199,13 @@ export async function POST(req: Request) {
         scraped_at: new Date().toISOString(),
       }
 
-      await supabase.from('company_profiles').upsert(companyData)
+      await (supabase as any).from('company_profiles').upsert(companyData)
 
       // Also update the main company table with description if available
-      await supabase.from('companies').update({
+      await (supabase as any).from('companies').update({
         description: result.about || result.description || result.summary,
         tech_stack: result.specialties || []
-      }).eq('id', company.id)
+      }).eq('id', (company as any).id)
 
       return NextResponse.json({ success: true, type: 'company' })
     }
