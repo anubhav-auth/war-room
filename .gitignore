@@ -31,7 +31,31 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env*
+.env
+.env.local
+.env*.local
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# OS
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Build & cache
+.cache/
+.turbo/
+.swc/
+dist/
 
 # vercel
 .vercel
