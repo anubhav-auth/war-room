@@ -38,7 +38,7 @@ export function buildUserPrompt(contact: Contact, company: Company, profile: Lin
 Name: ${contact.name}
 Title: ${contact.title}
 Company: ${company.name}
-Company description: ${company.description || (companyProfile ? companyProfile.about : '')}
+Company description: ${company.notes || (companyProfile ? companyProfile.about : '')}
 Company stage: ${company.funding_stage}
 Company tech stack: ${company.tech_stack?.join(', ')}
 Job posting notes: ${company.notes}
