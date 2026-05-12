@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Contact, Company } from '@/types/database'
-import { Plus, Search, Filter, Mail, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Search, Filter, Mail, ExternalLink, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 // If Linkedin is not in lucide-react, we can just use the link icon or similar, but let's check package json or just omit it if it breaks.
 import { computeNextAction, computePriorityScore } from '@/lib/priority'
 
@@ -55,7 +55,7 @@ export default function PipelineList() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: contact, error } = await supabase
+    const { data: contact, error } = await (supabase as any)
       .from('contacts')
       .insert([{ ...newContact, user_id: user.id }])
       .select()
@@ -320,8 +320,8 @@ export default function PipelineList() {
               <div>
                 <label className="block text-sm font-medium text-gray-700">Company (Optional)</label>
                 <select
-                  value={newContact.company_id}
-                  onChange={(e) => setNewContact({ ...newContact, company_id: e.target.value })}
+                  value={newContact.company_id ?? ''}
+                  onChange={(e) => setNewContact({ ...newContact, company_id: e.target.value || null })}
                   className="mt-1 block w-full border rounded-md p-2"
                 >
                   <option value="">Select a company (or leave blank for auto-discovery)</option>
@@ -388,4 +388,3 @@ function StatusBadge({ label, date }: { label: string, date: string | null }) {
     </div>
   )
 }
-
