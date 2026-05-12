@@ -17,7 +17,7 @@ export async function GET(req: Request) {
 
   try {
     // 1. Fetch up to 100 pending permutations
-    const { data: pending, error: fetchError } = await supabase
+    const { data: pending, error: fetchError } = await (supabase as any)
       .from('email_permutations')
       .select('*, contacts(user_id)')
       .eq('status', 'pending')
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
     const results = []
 
-    for (const item of pending) {
+    for (const item of (pending as any[])) {
       try {
         // 2. Call QuickEmailVerification Single API
         const response = await fetch(`https://api.quickemailverification.com/v1/verify?email=${encodeURIComponent(item.email)}&apikey=${apiKey}`)
@@ -41,20 +41,20 @@ export async function GET(req: Request) {
           const status = isValid ? 'valid' : (data.accept_all ? 'catch_all' : 'invalid')
 
           // 3. Update permutation status
-          await supabase
+          await (supabase as any)
             .from('email_permutations')
             .update({ status })
             .eq('id', item.id)
 
           if (isValid) {
             // 4. If valid, update contact
-            await supabase
+            await (supabase as any)
               .from('contacts')
               .update({ email: item.email })
               .eq('id', item.contact_id)
 
             // Mark other pending permutations for this contact as 'skipped'
-            await supabase
+            await (supabase as any)
               .from('email_permutations')
               .update({ status: 'skipped' })
               .eq('contact_id', item.contact_id)
