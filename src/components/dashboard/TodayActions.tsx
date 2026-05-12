@@ -1,3 +1,5 @@
+'use client'
+
 import React, { useState } from 'react'
 import { Contact, Company, GeneratedMessage } from '@/types/database'
 import { computeNextAction, computePriorityScore, daysSinceLastTouch } from '@/lib/priority'
@@ -34,7 +36,7 @@ export default function TodayActions({ initialContacts }: { initialContacts: (Co
     // Optimistic update
     setContacts(prev => prev.map(c => c.id === contact.id ? { ...c, ...update } : c))
 
-    const { error } = await supabase.from('contacts').update(update).eq('id', contact.id)
+    const { error } = await (supabase as any).from('contacts').update(update).eq('id', contact.id)
     if (error) {
       console.error('Update error:', error)
       // revert on error if needed
@@ -42,7 +44,7 @@ export default function TodayActions({ initialContacts }: { initialContacts: (Co
       // Log action
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        await supabase.from('actions_log').insert({
+        await (supabase as any).from('actions_log').insert({
           contact_id: contact.id,
           user_id: user.id,
           action_type: actionLabel,
