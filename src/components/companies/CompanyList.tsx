@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Company } from '@/types/database'
-import { Building2, Plus, ExternalLink, Linkedin } from 'lucide-react'
+import { Building2, Plus, ExternalLink } from 'lucide-react'
 
 export default function CompanyList() {
   const [companies, setCompanies] = useState<Company[]>([])
@@ -27,7 +27,7 @@ export default function CompanyList() {
   }, [])
 
   async function fetchCompanies() {
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('companies')
       .select('*, company_profiles(scraped_at)')
       .order('tier', { ascending: true })
@@ -44,7 +44,7 @@ export default function CompanyList() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: company, error } = await supabase
+    const { data: company, error } = await (supabase as any)
       .from('companies')
       .insert([{ ...newCompany, user_id: user.id }])
       .select()
@@ -58,13 +58,13 @@ export default function CompanyList() {
       fetchCompanies()
 
       // Trigger Apify if LinkedIn URL is present and not already scraped
-      if (company.linkedin_url) {
-        supabase.from('company_profiles').select('id').eq('company_id', company.id).single()
-          .then(({ data }) => {
+      if ((company as any).linkedin_url) {
+        (supabase as any).from('company_profiles').select('id').eq('company_id', (company as any).id).single()
+          .then(({ data }: any) => {
             if (!data) {
               fetch('/api/apify/trigger', {
                 method: 'POST',
-                body: JSON.stringify({ linkedinUrl: company.linkedin_url, companyId: company.id }),
+                body: JSON.stringify({ linkedinUrl: (company as any).linkedin_url, companyId: (company as any).id }),
               }).catch(err => console.error('Failed to trigger Apify:', err))
             }
           })
@@ -140,7 +140,7 @@ export default function CompanyList() {
                     rel="noopener noreferrer"
                     className="inline-flex items-center text-sm text-blue-600 hover:underline"
                   >
-                    <Linkedin className="w-4 h-4 mr-1" />
+                    <span className="w-4 h-4 mr-1" />
                     LinkedIn
                   </a>
                 )}
