@@ -1,7 +1,10 @@
+'use client'
+
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Contact, Company } from '@/types/database'
-import { Plus, Search, Filter, Linkedin, Mail, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Search, Filter, Mail, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'
+// If Linkedin is not in lucide-react, we can just use the link icon or similar, but let's check package json or just omit it if it breaks.
 import { computeNextAction, computePriorityScore } from '@/lib/priority'
 
 export default function PipelineList() {
@@ -215,7 +218,7 @@ export default function PipelineList() {
                               <div className="flex flex-col space-y-2 pt-2 border-t">
                                 {contact.linkedin_url && (
                                   <a href={contact.linkedin_url} target="_blank" className="flex items-center text-sm text-blue-600 hover:underline">
-                                    <Linkedin className="w-4 h-4 mr-2" /> View LinkedIn
+                                    <span className="w-4 h-4 mr-2" /> View LinkedIn
                                   </a>
                                 )}
                                 {contact.email && (
