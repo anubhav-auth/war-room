@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     const adminSupabase = createAdminClient()
 
     // 1. Fetch all necessary data and ensure ownership
-    const { data: contact, error: contactError } = await adminSupabase
+    const { data: contact, error: contactError } = await (adminSupabase as any)
       .from('contacts')
       .select('*')
       .eq('id', contactId)
@@ -31,10 +31,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Contact not found or unauthorized' }, { status: 404 })
     }
 
-    const { data: company } = await adminSupabase.from('companies').select('*').eq('id', contact.company_id || '').single()
-    const { data: context } = await adminSupabase.from('user_context').select('*').eq('user_id', user.id).single()
-    const { data: profile } = await adminSupabase.from('linkedin_profiles').select('*').eq('contact_id', contactId).single()
-    const { data: companyProfile } = await adminSupabase.from('company_profiles').select('*').eq('company_id', company?.id || '').single()
+    const { data: company } = await (adminSupabase as any).from('companies').select('*').eq('id', (contact as any).company_id || '').single()
+    const { data: context } = await (adminSupabase as any).from('user_context').select('*').eq('user_id', user.id).single()
+    const { data: profile } = await (adminSupabase as any).from('linkedin_profiles').select('*').eq('contact_id', contactId).single()
+    const { data: companyProfile } = await (adminSupabase as any).from('company_profiles').select('*').eq('company_id', (company as any)?.id || '').single()
 
     if (!context) {
       return NextResponse.json({ error: 'User context not found. Please complete your profile settings.' }, { status: 400 })
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     const messages = await generateMessages(context, contact, company || { name: 'Unknown' } as any, profile, companyProfile)
 
     // 3. Save to database
-    const { error: upsertError } = await adminSupabase.from('generated_messages').upsert({
+    const { error: upsertError } = await (adminSupabase as any).from('generated_messages').upsert({
       contact_id: contactId,
       ...messages,
       generated_at: new Date().toISOString(),
