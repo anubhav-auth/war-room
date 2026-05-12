@@ -35,7 +35,7 @@ export default function ContextForm() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('user_context')
         .select('*')
         .eq('user_id', user.id)
@@ -59,7 +59,7 @@ export default function ContextForm() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('user_context')
       .upsert({
         ...context,
