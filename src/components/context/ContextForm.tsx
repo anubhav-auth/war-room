@@ -16,7 +16,6 @@ export default function ContextForm() {
     loom_url: '',
     portfolio_url: '',
     github_url: '',
-    linkedin_url: '',
     primary_stack: '',
     specialisation: '',
     target_role: '',
@@ -118,11 +117,10 @@ export default function ContextForm() {
             <input type="url" name="loom_url" value={context.loom_url || ''} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-2" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Portfolio/GitHub/LinkedIn</label>
+            <label className="block text-sm font-medium text-gray-700">Portfolio/GitHub</label>
             <div className="space-y-2 mt-1">
               <input type="url" name="portfolio_url" value={context.portfolio_url || ''} onChange={handleChange} placeholder="Portfolio URL" className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-2" />
               <input type="url" name="github_url" value={context.github_url || ''} onChange={handleChange} placeholder="GitHub URL" className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-2" />
-              <input type="url" name="linkedin_url" value={context.linkedin_url || ''} onChange={handleChange} placeholder="LinkedIn URL" className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-2" />
             </div>
           </div>
         </section>
