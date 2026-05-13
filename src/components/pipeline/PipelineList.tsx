@@ -3,9 +3,10 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Contact, Company } from '@/types/database'
-import { Plus, Search, Filter, Mail, ExternalLink, ChevronDown, ChevronUp, RefreshCw, Trash2 } from 'lucide-react'
-// If Linkedin is not in lucide-react, we can just use the link icon or similar, but let's check package json or just omit it if it breaks.
+import { Plus, Search, Filter, Mail, ExternalLink, ChevronDown, ChevronUp, RefreshCw, Trash2, AlertCircle } from 'lucide-react'
 import { computeNextAction, computePriorityScore } from '@/lib/priority'
+import { validateContactData, sanitizeContactData } from '@/lib/validation/contact'
+import { logContactProcess } from '@/lib/contact-lifecycle'
 
 export default function PipelineList() {
   const [contacts, setContacts] = useState<(Contact & { companies: Company | null })[]>([])
@@ -14,6 +15,8 @@ export default function PipelineList() {
   const [searchTerm, setSearchTerm] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
   const [expandedContactId, setExpandedContactId] = useState<string | null>(null)
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  const [apiError, setApiError] = useState<string | null>(null)
   
   const [newContact, setNewContact] = useState<Partial<Contact>>({
     name: '',
@@ -46,67 +49,148 @@ export default function PipelineList() {
 
   useEffect(() => {
     fetchData()
+
+    // Subscribe to real-time updates on contacts table
+    const subscription = supabase
+      .channel('contacts_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'contacts' },
+        () => {
+          fetchData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
   const handleAddContact = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSaving(true)
+    setValidationErrors({})
+    setApiError(null)
+    
+    try {
+      setSaving(true)
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    // Clean up empty strings for UUID fields
-    const contactData = {
-      ...newContact,
-      user_id: user.id,
-      company_id: newContact.company_id || null
-    }
-
-    const { data: contact, error } = await (supabase as any)
-      .from('contacts')
-      .insert([contactData])
-      .select()
-      .single()
-
-if (error) {
-      alert('Error adding contact: ' + error.message)
-    } else if (contact) {
-      setShowAddModal(false)
-      setNewContact({ name: '', company_id: undefined, title: '', contact_type: 'cto_founder', linkedin_url: '', email: '', notes: '' })
-      
-      // Trigger Apify if LinkedIn URL is present - wait for it to complete then refresh
-      if (contact.linkedin_url) {
-        try {
-          const res = await fetch('/api/apify/trigger', {
-            method: 'POST',
-            body: JSON.stringify({ linkedinUrl: contact.linkedin_url, contactId: contact.id }),
-          })
-          if (res.ok) {
-            console.log('[Pipeline] Apify scrape completed successfully')
-          }
-        } catch (err) {
-          console.error('Failed to trigger Apify:', err)
-        }
+      // 1. Validate input data
+      const validationErrs = validateContactData(newContact)
+      if (validationErrs.length > 0) {
+        const errorMap: Record<string, string> = {}
+        validationErrs.forEach(err => {
+          errorMap[err.field] = err.message
+        })
+        setValidationErrors(errorMap)
+        setSaving(false)
+        return
       }
 
-      // Trigger email permutations if no email provided
-      if (!contact.email) {
+      // 2. Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setApiError('Authentication failed. Please refresh and try again.')
+        setSaving(false)
+        return
+      }
+
+      // 3. Sanitize data to prevent XSS/injection
+      const sanitizedContact = sanitizeContactData(newContact)
+
+      // 4. Prepare contact data
+      const contactData = {
+        ...sanitizedContact,
+        user_id: user.id,
+        company_id: sanitizedContact.company_id || null,
+        outcome: 'active',
+      }
+
+      // 5. Create contact in database
+      const { data: contact, error } = await (supabase as any)
+        .from('contacts')
+        .insert([contactData])
+        .select()
+        .single()
+
+      if (error || !contact) {
+        console.error('[Pipeline] Database insert error:', error)
+        setApiError(`Failed to create contact: ${error?.message || 'Unknown error'}`)
+        setSaving(false)
+        return
+      }
+
+      console.log('[Pipeline] Contact created:', contact.id)
+
+      // 6. Log initial creation
+      await logContactProcess(contact.id, user.id, 'created', 'success', {
+        name: contact.name,
+        has_linkedin_url: !!contact.linkedin_url,
+        has_email: !!contact.email,
+      })
+
+      // 7. Reset modal
+      setShowAddModal(false)
+      setNewContact({
+        name: '',
+        company_id: undefined,
+        title: '',
+        contact_type: 'cto_founder',
+        linkedin_url: '',
+        email: '',
+        notes: '',
+      })
+
+      // 8. Immediately refresh to show new contact
+      await fetchData()
+
+      // 9. Trigger background processes (fire and forget with logging)
+      if (contact.linkedin_url) {
+        console.log('[Pipeline] Triggering Apify scrape for:', contact.id)
+        await logContactProcess(contact.id, user.id, 'linkedin_scraping_triggered', 'pending', {
+          linkedin_url: contact.linkedin_url,
+        })
+
+        fetch('/api/apify/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ linkedinUrl: contact.linkedin_url, contactId: contact.id }),
+        }).catch(err => {
+          console.error('[Pipeline] Apify trigger failed:', err)
+          logContactProcess(contact.id, user.id, 'linkedin_scraping_triggered', 'failed', {}, err.message)
+        })
+      }
+
+      // 10. Generate emails if no email provided AND no linkedin_url provided
+      // (If linkedin_url is provided, the Apify webhook will handle email generation)
+      if (!contact.email && !contact.linkedin_url) {
+        console.log('[Pipeline] Triggering email generation for:', contact.id)
         fetch('/api/emails/generate', {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contactId: contact.id, userId: user.id }),
-        }).catch(err => console.error('Failed to trigger email permutations:', err))
-      } else {
+        }).catch(err => {
+          console.error('[Pipeline] Email generation failed:', err)
+          logContactProcess(contact.id, user.id, 'emails_generated', 'failed', {}, err.message)
+        })
+      } else if (contact.email) {
+        // If email is provided, generate AI messages directly
+        console.log('[Pipeline] Triggering message generation for:', contact.id)
         fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contactId: contact.id, userId: user.id }),
-        }).catch(err => console.error('Failed to trigger generation:', err))
+        }).catch(err => {
+          console.error('[Pipeline] Message generation failed:', err)
+          logContactProcess(contact.id, user.id, 'messages_generated', 'failed', {}, err.message)
+        })
       }
-
-      // Refresh data after everything
-      fetchData()
+    } catch (err) {
+      console.error('[Pipeline] Unexpected error:', err)
+      setApiError(`Unexpected error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   const handleDeleteContact = async (id: string) => {
@@ -337,72 +421,216 @@ if (error) {
 
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full">
+          <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-6">Add New Contact</h2>
+            
+            {/* API Error Display */}
+            {apiError && (
+              <div className="mb-4 flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-md">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-red-800">{apiError}</p>
+                  <button
+                    type="button"
+                    onClick={() => setApiError(null)}
+                    className="text-xs text-red-600 hover:text-red-700 mt-1"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleAddContact} className="space-y-4">
+              {/* Name Field */}
               <div>
-                <label className="block text-sm font-medium text-gray-700">Name</label>
+                <label className="block text-sm font-medium text-gray-700">
+                  Name <span className="text-red-600">*</span>
+                </label>
                 <input
                   type="text"
-                  required
-                  value={newContact.name}
-                  onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
-                  className="mt-1 block w-full border rounded-md p-2"
+                  placeholder="Full name of contact"
+                  maxLength={255}
+                  value={newContact.name || ''}
+                  onChange={(e) => {
+                    setNewContact({ ...newContact, name: e.target.value })
+                    if (validationErrors.name) {
+                      const newErrors = { ...validationErrors }
+                      delete newErrors.name
+                      setValidationErrors(newErrors)
+                    }
+                  }}
+                  className={`mt-1 block w-full border rounded-md p-2 focus:ring-2 focus:outline-none ${
+                    validationErrors.name
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                 />
+                {validationErrors.name && (
+                  <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    {validationErrors.name}
+                  </p>
+                )}
               </div>
+
+              {/* Company Field */}
               <div>
                 <label className="block text-sm font-medium text-gray-700">Company (Optional)</label>
                 <select
                   value={newContact.company_id ?? ''}
                   onChange={(e) => setNewContact({ ...newContact, company_id: e.target.value || null })}
-                  className="mt-1 block w-full border rounded-md p-2"
+                  className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 >
                   <option value="">Select a company (or leave blank for auto-discovery)</option>
                   {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
                 <p className="text-[10px] text-gray-500 mt-1">If blank, we&apos;ll auto-create the company from their LinkedIn profile.</p>
               </div>
+
+              {/* Title Field */}
               <div>
-                <label className="block text-sm font-medium text-gray-700">Title</label>
+                <label className="block text-sm font-medium text-gray-700">Title (Optional)</label>
                 <input
                   type="text"
+                  placeholder="e.g. CTO, Lead Engineer"
+                  maxLength={255}
                   value={newContact.title || ''}
-                  onChange={(e) => setNewContact({ ...newContact, title: e.target.value })}
-                  className="mt-1 block w-full border rounded-md p-2"
+                  onChange={(e) => {
+                    setNewContact({ ...newContact, title: e.target.value })
+                    if (validationErrors.title) {
+                      const newErrors = { ...validationErrors }
+                      delete newErrors.title
+                      setValidationErrors(newErrors)
+                    }
+                  }}
+                  className={`mt-1 block w-full border rounded-md p-2 focus:ring-2 focus:outline-none ${
+                    validationErrors.title
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                 />
+                {validationErrors.title && (
+                  <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    {validationErrors.title}
+                  </p>
+                )}
               </div>
+
+              {/* Contact Type Field */}
               <div>
-                <label className="block text-sm font-medium text-gray-700">LinkedIn URL</label>
+                <label className="block text-sm font-medium text-gray-700">
+                  Contact Type <span className="text-red-600">*</span>
+                </label>
+                <select
+                  value={newContact.contact_type || 'cto_founder'}
+                  onChange={(e) => {
+                    setNewContact({ ...newContact, contact_type: e.target.value as any })
+                    if (validationErrors.contact_type) {
+                      const newErrors = { ...validationErrors }
+                      delete newErrors.contact_type
+                      setValidationErrors(newErrors)
+                    }
+                  }}
+                  className={`mt-1 block w-full border rounded-md p-2 focus:ring-2 focus:outline-none ${
+                    validationErrors.contact_type
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
+                >
+                  <option value="cto_founder">CTO / Founder</option>
+                  <option value="lead_eng">Lead Engineer</option>
+                  <option value="other">Other</option>
+                </select>
+                {validationErrors.contact_type && (
+                  <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    {validationErrors.contact_type}
+                  </p>
+                )}
+              </div>
+
+              {/* LinkedIn URL Field */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700">LinkedIn URL (Optional)</label>
                 <input
                   type="url"
+                  placeholder="https://linkedin.com/in/..."
                   value={newContact.linkedin_url || ''}
-                  onChange={(e) => setNewContact({ ...newContact, linkedin_url: e.target.value })}
-                  className="mt-1 block w-full border rounded-md p-2"
+                  onChange={(e) => {
+                    setNewContact({ ...newContact, linkedin_url: e.target.value })
+                    if (validationErrors.linkedin_url) {
+                      const newErrors = { ...validationErrors }
+                      delete newErrors.linkedin_url
+                      setValidationErrors(newErrors)
+                    }
+                  }}
+                  className={`mt-1 block w-full border rounded-md p-2 focus:ring-2 focus:outline-none ${
+                    validationErrors.linkedin_url
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                 />
+                {validationErrors.linkedin_url && (
+                  <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    {validationErrors.linkedin_url}
+                  </p>
+                )}
+                <p className="text-[10px] text-gray-500 mt-1">We&apos;ll scrape their profile to enrich the contact data.</p>
               </div>
+
+              {/* Email Field */}
               <div>
-                <label className="block text-sm font-medium text-gray-700">Email</label>
+                <label className="block text-sm font-medium text-gray-700">Email (Optional)</label>
                 <input
                   type="email"
+                  placeholder="name@company.com"
                   value={newContact.email || ''}
-                  onChange={(e) => setNewContact({ ...newContact, email: e.target.value })}
-                  className="mt-1 block w-full border rounded-md p-2"
+                  onChange={(e) => {
+                    setNewContact({ ...newContact, email: e.target.value })
+                    if (validationErrors.email) {
+                      const newErrors = { ...validationErrors }
+                      delete newErrors.email
+                      setValidationErrors(newErrors)
+                    }
+                  }}
+                  className={`mt-1 block w-full border rounded-md p-2 focus:ring-2 focus:outline-none ${
+                    validationErrors.email
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                 />
+                {validationErrors.email && (
+                  <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    {validationErrors.email}
+                  </p>
+                )}
+                <p className="text-[10px] text-gray-500 mt-1">If not provided, we&apos;ll generate email permutations to try.</p>
               </div>
-              <div className="flex justify-end space-x-3 mt-6">
+
+              {/* Buttons */}
+              <div className="flex justify-end space-x-3 mt-6 pt-4 border-t">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-900"
+                  onClick={() => {
+                    setShowAddModal(false)
+                    setValidationErrors({})
+                    setApiError(null)
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
-                  {saving ? 'Saving...' : 'Add Contact'}
+                  {saving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                  {saving ? 'Creating...' : 'Create Contact'}
                 </button>
               </div>
             </form>
