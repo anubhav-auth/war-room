@@ -14,6 +14,7 @@ export default function CompanyList() {
     tier: 2,
     funding_stage: '',
     website_url: '',
+    linkedin_url: '',
     tech_stack: [],
     notes: '',
   })
@@ -53,7 +54,7 @@ export default function CompanyList() {
       alert('Error adding company: ' + error.message)
     } else if (company) {
       setShowAddModal(false)
-      setNewCompany({ name: '', tier: 2, funding_stage: '', website_url: '', tech_stack: [], notes: '' })
+      setNewCompany({ name: '', tier: 2, funding_stage: '', website_url: '', linkedin_url: '', tech_stack: [], notes: '' })
       fetchCompanies()
     }
     setSaving(false)
@@ -179,6 +180,15 @@ export default function CompanyList() {
                   type="url"
                   value={newCompany.website_url || ''}
                   onChange={(e) => setNewCompany({ ...newCompany, website_url: e.target.value })}
+                  className="mt-1 block w-full border rounded-md p-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">LinkedIn URL</label>
+                <input
+                  type="url"
+                  value={newCompany.linkedin_url || ''}
+                  onChange={(e) => setNewCompany({ ...newCompany, linkedin_url: e.target.value })}
                   className="mt-1 block w-full border rounded-md p-2"
                 />
               </div>
