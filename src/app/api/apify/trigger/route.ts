@@ -121,18 +121,17 @@ export async function POST(req: Request) {
         }).catch(err => console.error('Failed to trigger permutations:', err))
       }
 
-      scrapePost(linkedinUrl).then(posts => {
-        if (posts && posts.length > 0) {
-          const recent_posts = posts.map((p: any) => ({
-            text: p.text,
-            url: p.postUrl,
-            date: p.postedAt,
-            likes: p.numLikes,
-            comments: p.numComments
-          }))
-          return (supabase as any).from('linkedin_profiles').update({ recent_posts }).eq('contact_id', contactId)
-        }
-      }).catch(err => console.error('Failed to scrape posts:', err))
+      const posts = await scrapePost(linkedinUrl)
+      if (posts && posts.length > 0) {
+        const recent_posts = posts.slice(0, 4).map((p: any) => ({
+          text: p.text,
+          url: p.postUrl,
+          date: p.postedAt,
+          likes: p.numLikes,
+          comments: p.numComments
+        }))
+        await (supabase as any).from('linkedin_profiles').update({ recent_posts }).eq('contact_id', contactId)
+      }
 
       await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/generate`, {
         method: 'POST',
