@@ -1,15 +1,19 @@
 export async function triggerScrape(linkedinUrl: string) {
+  const payload = {
+    urls: [{ url: linkedinUrl }],
+    findContacts: true,
+    "findContacts.contactCompassToken": process.env.CONTACT_COMPASS_TOKEN,
+    scrapeCompany: true,
+  }
+
+  console.log('[Apify] Triggering Scrape for:', linkedinUrl)
+  
   const response = await fetch(`https://api.apify.com/v2/acts/supreme_coder~linkedin-profile-scraper/runs?token=${process.env.APIFY_API_TOKEN}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      urls: [{ url: linkedinUrl }],
-      findContacts: true,
-      "findContacts.contactCompassToken": process.env.CONTACT_COMPASS_TOKEN,
-      scrapeCompany: true, // Also scrape the company for better context
-    }),
+    body: JSON.stringify(payload),
   })
 
   if (!response.ok) {
