@@ -4,16 +4,21 @@ import { triggerPostScrape } from '@/lib/scraping/apify'
 
 export async function POST(req: Request) {
   try {
+    const url = new URL(req.url)
+    console.log(`[Apify Webhook] Incoming request to: ${url.pathname}${url.search}`)
+
     // 0. Strict Security Check
-    const { searchParams } = new URL(req.url)
+    const { searchParams } = url
     const secret = searchParams.get('secret')
     
     if (!secret || secret !== process.env.APIFY_WEBHOOK_SECRET) {
-      console.warn('Unauthorized Webhook Attempt: Invalid or missing secret')
+      console.warn('[Apify Webhook] Unauthorized Attempt: Invalid or missing secret')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const body = await req.json()
+    console.log('[Apify Webhook] Payload:', JSON.stringify(body, null, 2))
+    
     const { resource } = body // Apify webhook payload
     
     if (!resource || !resource.defaultDatasetId) {
@@ -22,13 +27,31 @@ export async function POST(req: Request) {
 
     const supabase = createAdminClient()
 
+    // Helper to normalize LinkedIn URLs for matching
+    const normalizeUrl = (url: string) => {
+      if (!url) return ''
+      return url.toLowerCase()
+        .replace(/\/$/, '') // remove trailing slash
+        .replace('www.', '') // remove www
+        .replace('http://', 'https://') // force https
+    }
+
+    const normalizedProfileUrl = normalizeUrl(result.linkedinUrl || result.url)
+    console.log(`[Apify Webhook] Looking for matching contact/company for: ${normalizedProfileUrl}`)
+
     // 1. Fetch data from Apify Dataset
     const datasetResponse = await fetch(`https://api.apify.com/v2/datasets/${resource.defaultDatasetId}/items?token=${process.env.APIFY_API_TOKEN}`)
     const items = await datasetResponse.json()
 
     if (!items || items.length === 0) {
+      console.warn('[Apify Webhook] No data in dataset')
       return NextResponse.json({ error: 'No data in dataset' }, { status: 400 })
     }
+
+    // Determine Base URL for internal calls
+    const host = req.headers.get('host')
+    const protocol = req.headers.get('x-forwarded-proto') || 'http'
+    const baseUrl = `${protocol}://${host}`
 
     // 2. Determine Actor Type and Process
     // supreme_coder~linkedin-profile-scraper returns a single profile object (usually)
@@ -40,14 +63,17 @@ export async function POST(req: Request) {
       // Handle Post Data
       const profileUrl = firstItem.authorUrl
       if (!profileUrl) return NextResponse.json({ error: 'No profile URL in post data' }, { status: 400 })
+      
+      const normalizedUrl = normalizeUrl(profileUrl)
 
-      const { data: contact } = await (supabase as any)
+      const { data: contacts } = await (supabase as any)
         .from('contacts')
-        .select('id, user_id')
-        .eq('linkedin_url', profileUrl)
-        .single()
+        .select('id, user_id, linkedin_url')
+
+      const contact = contacts?.find((c: any) => normalizeUrl(c.linkedin_url) === normalizedUrl)
 
       if (contact) {
+        console.log(`[Apify Webhook] Processing post data for contact: ${contact.id}`)
         // Format posts for our database
         const recent_posts = items.map((p: any) => ({
           text: p.text,
@@ -63,7 +89,7 @@ export async function POST(req: Request) {
           .eq('contact_id', (contact as any).id)
 
         // Regenerate messages with new post context
-        await fetch(`${req.headers.get('origin')}/api/generate`, {
+        await fetch(`${baseUrl}/api/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contactId: (contact as any).id, userId: (contact as any).user_id }),
@@ -73,17 +99,18 @@ export async function POST(req: Request) {
       }
     }
 
-    const result = firstItem
     const profileUrl = result.linkedinUrl || result.url
+    const normalizedUrl = normalizeUrl(profileUrl)
     
-    // Check if it's a contact first
-    const { data: contact } = await (supabase as any)
+    // Fetch all candidates to find normalized match
+    const { data: contacts } = await (supabase as any)
       .from('contacts')
-      .select('id, user_id, email')
-      .eq('linkedin_url', profileUrl)
-      .single()
+      .select('id, user_id, email, linkedin_url, company_id')
+
+    const contact = contacts?.find((c: any) => normalizeUrl(c.linkedin_url) === normalizedUrl)
 
     if (contact) {
+      console.log(`[Apify Webhook] Processing profile data for contact: ${contact.id}`)
       // 2.1 Handle/Create Company for this contact automatically
       let companyId = (contact as any).company_id
       
@@ -91,13 +118,15 @@ export async function POST(req: Request) {
         const companyUrl = result.companyLinkedin.startsWith('http') 
           ? result.companyLinkedin 
           : `https://www.linkedin.com/company/${result.companyLinkedin.split('/').pop()}`
+        
+        const normalizedCompanyUrl = normalizeUrl(companyUrl)
 
         // Check if company exists by URL
-        const { data: existingCompany } = await (supabase as any)
+        const { data: companies } = await (supabase as any)
           .from('companies')
-          .select('id')
-          .eq('linkedin_url', companyUrl)
-          .single()
+          .select('id, linkedin_url')
+
+        const existingCompany = companies?.find((c: any) => normalizeUrl(c.linkedin_url) === normalizedCompanyUrl)
 
         if (existingCompany) {
           companyId = (existingCompany as any).id
@@ -156,7 +185,7 @@ export async function POST(req: Request) {
         }, { onConflict: 'contact_id,email' })
       } else {
         // No email found by scraper, trigger permutations in background
-        fetch(`${req.headers.get('origin')}/api/emails/generate`, {
+        fetch(`${baseUrl}/api/emails/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contactId: (contact as any).id, userId: (contact as any).user_id }),
@@ -164,23 +193,21 @@ export async function POST(req: Request) {
       }
 
       // 4. Trigger Post Scraper for even more context
-      triggerPostScrape(profileUrl).catch(err => console.error('Failed to trigger post scraper:', err))
-
-      // 5. We NO LONGER trigger AI Generation here. 
-      // We wait for the post scraper to finish and trigger it then,
-      // ensuring we have the absolute maximum context for the first generation.
+      const { triggerPostScrape: triggerPostScrapeFn } = await import('@/lib/scraping/apify')
+      triggerPostScrapeFn(profileUrl).catch(err => console.error('Failed to trigger post scraper:', err))
 
       return NextResponse.json({ success: true, type: 'contact' })
     }
 
     // Check if it's a company
-    const { data: company } = await (supabase as any)
+    const { data: companies } = await (supabase as any)
       .from('companies')
-      .select('id, user_id')
-      .eq('linkedin_url', profileUrl)
-      .single()
+      .select('id, user_id, linkedin_url')
+
+    const company = companies?.find((c: any) => normalizeUrl(c.linkedin_url) === normalizedUrl)
 
     if (company) {
+      console.log(`[Apify Webhook] Processing data for company: ${company.id}`)
       // Handle Company Scraping
       const companyData = {
         company_id: (company as any).id,
@@ -210,6 +237,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, type: 'company' })
     }
 
+    console.warn(`[Apify Webhook] No matching contact or company found for: ${normalizedUrl}`)
     return NextResponse.json({ error: 'No matching contact or company found' }, { status: 404 })
   } catch (error: any) {
     console.error('Apify Webhook Error:', error)
