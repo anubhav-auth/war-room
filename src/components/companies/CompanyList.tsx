@@ -65,6 +65,9 @@ export default function CompanyList() {
               fetch('/api/apify/trigger', {
                 method: 'POST',
                 body: JSON.stringify({ linkedinUrl: (company as any).linkedin_url, companyId: (company as any).id }),
+              }).then(() => {
+                // Refresh data after scraping completes
+                fetchCompanies()
               }).catch(err => console.error('Failed to trigger Apify:', err))
             }
           })
