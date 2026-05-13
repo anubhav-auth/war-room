@@ -68,25 +68,49 @@ export default function PipelineList() {
       .select()
       .single()
 
-    if (error) {
+if (error) {
       alert('Error adding contact: ' + error.message)
     } else if (contact) {
       setShowAddModal(false)
       setNewContact({ name: '', company_id: undefined, title: '', contact_type: 'cto_founder', linkedin_url: '', email: '', notes: '' })
-      fetchData()
       
-      // Trigger Apify if LinkedIn URL is present and not already scraped
+      // Trigger Apify if LinkedIn URL is present - wait for it to complete then refresh
       if (contact.linkedin_url) {
-        // Fetch to see if profile exists
-        supabase.from('linkedin_profiles').select('id').eq('contact_id', contact.id).single()
-          .then(({ data }) => {
-            if (!data) {
-              fetch('/api/apify/trigger', {
-                method: 'POST',
-                body: JSON.stringify({ linkedinUrl: contact.linkedin_url, contactId: contact.id }),
-              }).catch(err => console.error('Failed to trigger Apify:', err))
-            }
+        try {
+          const res = await fetch('/api/apify/trigger', {
+            method: 'POST',
+            body: JSON.stringify({ linkedinUrl: contact.linkedin_url, contactId: contact.id }),
           })
+          if (res.ok) {
+            console.log('[Pipeline] Apify scrape completed successfully')
+          }
+        } catch (err) {
+          console.error('Failed to trigger Apify:', err)
+        }
+      }
+
+      // Trigger email permutations if no email provided
+      if (!contact.email) {
+        fetch('/api/emails/generate', {
+          method: 'POST',
+          body: JSON.stringify({ contactId: contact.id, userId: user.id }),
+        }).catch(err => console.error('Failed to trigger email permutations:', err))
+      } else {
+        fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contactId: contact.id, userId: user.id }),
+        }).catch(err => console.error('Failed to trigger generation:', err))
+      }
+
+      // Refresh data after everything
+      fetchData()
+    }
+    setSaving(false)
+  }
+        } catch (err) {
+          console.error('Failed to trigger Apify:', err)
+        }
       }
 
       // Trigger email permutations if no email provided
