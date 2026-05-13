@@ -9,12 +9,11 @@ export default function CompanyList() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [newCompany, setNewCompany] = useState<Partial<Company & { linkedin_url?: string }>>({
+  const [newCompany, setNewCompany] = useState<Partial<Company>>({
     name: '',
     tier: 2,
     funding_stage: '',
     website_url: '',
-    linkedin_url: '',
     tech_stack: [],
     notes: '',
   })
@@ -54,24 +53,8 @@ export default function CompanyList() {
       alert('Error adding company: ' + error.message)
     } else if (company) {
       setShowAddModal(false)
-      setNewCompany({ name: '', tier: 2, funding_stage: '', website_url: '', linkedin_url: '', tech_stack: [], notes: '' })
+      setNewCompany({ name: '', tier: 2, funding_stage: '', website_url: '', tech_stack: [], notes: '' })
       fetchCompanies()
-
-      // Trigger Apify if LinkedIn URL is present and not already scraped
-      if ((company as any).linkedin_url) {
-        (supabase as any).from('company_profiles').select('id').eq('company_id', (company as any).id).single()
-          .then(({ data }: any) => {
-            if (!data) {
-              fetch('/api/apify/trigger', {
-                method: 'POST',
-                body: JSON.stringify({ linkedinUrl: (company as any).linkedin_url, companyId: (company as any).id }),
-              }).then(() => {
-                // Refresh data after scraping completes
-                fetchCompanies()
-              }).catch(err => console.error('Failed to trigger Apify:', err))
-            }
-          })
-      }
     }
     setSaving(false)
   }
@@ -136,19 +119,8 @@ export default function CompanyList() {
                     Website
                   </a>
                 )}
-                {(company as any).linkedin_url && (
-                  <a
-                    href={(company as any).linkedin_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center text-sm text-blue-600 hover:underline"
-                  >
-                    <span className="w-4 h-4 mr-1" />
-                    LinkedIn
-                  </a>
-                )}
               </div>
-              {!(company as any).company_profiles?.[0] && (company as any).linkedin_url && (
+              {!(company as any).company_profiles?.[0] && (
                 <p className="text-[10px] text-yellow-600 font-bold uppercase animate-pulse mt-2">
                   Scraping Company Data...
                 </p>
@@ -208,16 +180,6 @@ export default function CompanyList() {
                   value={newCompany.website_url || ''}
                   onChange={(e) => setNewCompany({ ...newCompany, website_url: e.target.value })}
                   className="mt-1 block w-full border rounded-md p-2"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">LinkedIn Company URL</label>
-                <input
-                  type="url"
-                  value={newCompany.linkedin_url || ''}
-                  onChange={(e) => setNewCompany({ ...newCompany, linkedin_url: e.target.value })}
-                  className="mt-1 block w-full border rounded-md p-2"
-                  placeholder="https://www.linkedin.com/company/..."
                 />
               </div>
               <div>
