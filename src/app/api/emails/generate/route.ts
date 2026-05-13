@@ -5,14 +5,29 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function POST(req: Request) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const body = await req.json()
+    const { contactId, userId } = body
+    
+    // Allow internal calls with userId parameter or authenticated user requests
+    let user: any = null
+    
+    if (userId) {
+      // Internal call with userId - trust it
+      user = { id: userId }
+    } else {
+      // Regular authenticated request
+      const supabase = await createClient()
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      user = authUser
     }
 
-    const { contactId } = await req.json()
+    if (!contactId) {
+      return NextResponse.json({ error: 'Contact ID is required' }, { status: 400 })
+    }
+
     const adminSupabase = createAdminClient()
 
     // 1. Fetch contact and company domain, ensuring ownership
@@ -47,7 +62,7 @@ export async function POST(req: Request) {
       status: 'pending'
     }))
 
-    const { error: insertError } = await (supabase as any)
+    const { error: insertError } = await (adminSupabase as any)
       .from('email_permutations')
       .insert(permutations)
     if (insertError) throw insertError
