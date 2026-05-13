@@ -91,7 +91,10 @@ export async function POST(req: Request) {
         // Regenerate messages with new post context
         await fetch(`${baseUrl}/api/generate`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.INTERNAL_SECRET}`
+          },
           body: JSON.stringify({ contactId: (contact as any).id, userId: (contact as any).user_id }),
         })
 
@@ -187,7 +190,10 @@ export async function POST(req: Request) {
         // No email found by scraper, trigger permutations in background
         fetch(`${baseUrl}/api/emails/generate`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.INTERNAL_SECRET}`
+          },
           body: JSON.stringify({ contactId: (contact as any).id, userId: (contact as any).user_id }),
         }).catch(err => console.error('Failed to trigger permutations:', err))
       }
