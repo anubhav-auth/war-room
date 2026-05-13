@@ -1,16 +1,35 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { contactId, userId } = body
+    const { contactId } = body
 
-    if (!contactId || !userId) {
-      return NextResponse.json({ error: 'Missing contactId or userId' }, { status: 400 })
+    if (!contactId) {
+      return NextResponse.json({ error: 'Missing contactId' }, { status: 400 })
+    }
+
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const adminSupabase = createAdminClient()
+
+    // 0. Check ownership
+    const { data: contact, error: contactError } = await (adminSupabase as any)
+      .from('contacts')
+      .select('id')
+      .eq('id', contactId)
+      .eq('user_id', user.id)
+      .single()
+      
+    if (contactError || !contact) {
+      return NextResponse.json({ error: 'Contact not found or unauthorized' }, { status: 404 })
+    }
 
     // 1. Get the contact's most recently queued email
     const { data: permutations, error: permError } = await (adminSupabase as any)
