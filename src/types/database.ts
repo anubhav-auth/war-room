@@ -95,6 +95,8 @@ export interface Database {
           website_url: string | null
           notes: string | null
           created_at: string
+          linkedin_url: string | null
+          description: string | null
         }
         Insert: {
           id?: string
@@ -110,6 +112,8 @@ export interface Database {
           website_url?: string | null
           notes?: string | null
           created_at?: string
+          linkedin_url?: string | null
+          description?: string | null
         }
         Update: {
           id?: string
@@ -125,6 +129,8 @@ export interface Database {
           website_url?: string | null
           notes?: string | null
           created_at?: string
+          linkedin_url?: string | null
+          description?: string | null
         }
       }
       contacts: {
