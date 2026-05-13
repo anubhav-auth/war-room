@@ -6,7 +6,7 @@ import { computeNextAction, computePriorityScore, daysSinceLastTouch } from '@/l
 import { createClient } from '@/lib/supabase/client'
 import { ChevronDown, ChevronUp, Copy, Check, RefreshCw } from 'lucide-react'
 
-export default function TodayActions({ initialContacts }: { initialContacts: (Contact & { companies: Company, generated_messages: GeneratedMessage | null })[] }) {
+export default function TodayActions({ initialContacts }: { initialContacts: (Contact & { companies: Company | null, generated_messages: GeneratedMessage | null })[] }) {
   const [contacts, setContacts] = useState(initialContacts)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [copyStatus, setCopyStatus] = useState<Record<string, boolean>>({})
@@ -15,8 +15,8 @@ export default function TodayActions({ initialContacts }: { initialContacts: (Co
   const sortedContacts = [...contacts]
     .filter(c => computeNextAction(c) !== '')
     .sort((a, b) => {
-      const scoreA = computePriorityScore(a, a.companies.tier)
-      const scoreB = computePriorityScore(b, b.companies.tier)
+      const scoreA = computePriorityScore(a, a.companies?.tier || 2)
+      const scoreB = computePriorityScore(b, b.companies?.tier || 2)
       return scoreB - scoreA
     })
 
@@ -78,7 +78,7 @@ export default function TodayActions({ initialContacts }: { initialContacts: (Co
             {sortedContacts.map((contact) => {
               const nextAction = computeNextAction(contact)
               const daysSince = daysSinceLastTouch(contact)
-              const isTier1 = contact.companies.tier === 1
+              const isTier1 = contact.companies?.tier === 1
 
               return (
                 <React.Fragment key={contact.id}>
@@ -91,7 +91,7 @@ export default function TodayActions({ initialContacts }: { initialContacts: (Co
                       <div className="text-sm text-gray-500">{contact.title}</div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-gray-900">{contact.companies.name}</div>
+                      <div className="text-gray-900">{contact.companies?.name || 'Auto-discovery...'}</div>
                     </td>
                     <td className="px-6 py-4 text-center">
                       <button 
