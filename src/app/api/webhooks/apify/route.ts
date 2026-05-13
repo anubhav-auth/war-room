@@ -36,9 +36,6 @@ export async function POST(req: Request) {
         .replace('http://', 'https://') // force https
     }
 
-    const normalizedProfileUrl = normalizeUrl(result.linkedinUrl || result.url)
-    console.log(`[Apify Webhook] Looking for matching contact/company for: ${normalizedProfileUrl}`)
-
     // 1. Fetch data from Apify Dataset
     const datasetResponse = await fetch(`https://api.apify.com/v2/datasets/${resource.defaultDatasetId}/items?token=${process.env.APIFY_API_TOKEN}`)
     const items = await datasetResponse.json()
@@ -48,6 +45,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No data in dataset' }, { status: 400 })
     }
 
+    const firstItem = items[0]
+    const normalizedProfileUrl = normalizeUrl(firstItem.linkedinUrl || firstItem.url)
+    console.log(`[Apify Webhook] Looking for matching contact/company for: ${normalizedProfileUrl}`)
+
     // Determine Base URL for internal calls
     const host = req.headers.get('host')
     const protocol = req.headers.get('x-forwarded-proto') || 'http'
@@ -56,7 +57,6 @@ export async function POST(req: Request) {
     // 2. Determine Actor Type and Process
     // supreme_coder~linkedin-profile-scraper returns a single profile object (usually)
     // supreme_coder~linkedin-post returns an array of posts
-    const firstItem = items[0]
     const isPostData = firstItem.authorUrl || firstItem.postUrl || (firstItem.text && !firstItem.firstName)
 
     if (isPostData) {
@@ -99,7 +99,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const profileUrl = result.linkedinUrl || result.url
+    const profileUrl = firstItem.linkedinUrl || firstItem.url
     const normalizedUrl = normalizeUrl(profileUrl)
     
     // Fetch all candidates to find normalized match
@@ -114,10 +114,10 @@ export async function POST(req: Request) {
       // 2.1 Handle/Create Company for this contact automatically
       let companyId = (contact as any).company_id
       
-      if (!companyId && result.companyLinkedin) {
-        const companyUrl = result.companyLinkedin.startsWith('http') 
-          ? result.companyLinkedin 
-          : `https://www.linkedin.com/company/${result.companyLinkedin.split('/').pop()}`
+      if (!companyId && firstItem.companyLinkedin) {
+        const companyUrl = firstItem.companyLinkedin.startsWith('http') 
+          ? firstItem.companyLinkedin 
+          : `https://www.linkedin.com/company/${firstItem.companyLinkedin.split('/').pop()}`
         
         const normalizedCompanyUrl = normalizeUrl(companyUrl)
 
@@ -135,10 +135,10 @@ export async function POST(req: Request) {
           const { data: newCompany } = await (supabase as any)
             .from('companies')
             .insert({
-              name: result.companyName || 'Unknown Company',
+              name: firstItem.companyName || 'Unknown Company',
               linkedin_url: companyUrl,
               user_id: (contact as any).user_id,
-              website_url: result.companyWebsite
+              website_url: firstItem.companyWebsite
             })
             .select()
             .single()
@@ -160,12 +160,12 @@ export async function POST(req: Request) {
       // Handle Contact Scraping
       const profileData = {
         contact_id: (contact as any).id,
-        headline: result.headline,
-        about: result.summary || result.about,
-        current_company_description: result.currentJobDescription,
-        experience: result.experiences || result.experience,
-        skills: result.skills,
-        raw_data: result,
+        headline: firstItem.headline,
+        about: firstItem.summary || firstItem.about,
+        current_company_description: firstItem.currentJobDescription,
+        experience: firstItem.experiences || firstItem.experience,
+        skills: firstItem.skills,
+        raw_data: firstItem,
         apify_run_id: resource.runId || resource.id,
         scraped_at: new Date().toISOString(),
       }
@@ -173,7 +173,7 @@ export async function POST(req: Request) {
       await (supabase as any).from('linkedin_profiles').upsert(profileData)
 
       // 3. Handle Email Discovery
-      const discoveredEmail = result.email || (result.contacts && result.contacts[0] && result.contacts[0].email)
+      const discoveredEmail = firstItem.email || (firstItem.contacts && firstItem.contacts[0] && firstItem.contacts[0].email)
       
       if (discoveredEmail) {
         // Add to permutations for verification
@@ -212,16 +212,16 @@ export async function POST(req: Request) {
       const companyData = {
         company_id: (company as any).id,
         user_id: (company as any).user_id,
-        name: result.name || result.companyName,
-        industry: result.industry,
-        website: result.website || result.companyWebsite,
-        company_size: result.companySize,
-        headcount: result.headcount,
-        about: result.about || result.description || result.summary,
-        specialties: result.specialties,
-        headquarters: result.headquarters,
-        founded: result.founded,
-        raw_data: result,
+        name: firstItem.name || firstItem.companyName,
+        industry: firstItem.industry,
+        website: firstItem.website || firstItem.companyWebsite,
+        company_size: firstItem.companySize,
+        headcount: firstItem.headcount,
+        about: firstItem.about || firstItem.description || firstItem.summary,
+        specialties: firstItem.specialties,
+        headquarters: firstItem.headquarters,
+        founded: firstItem.founded,
+        raw_data: firstItem,
         apify_run_id: resource.runId || resource.id,
         scraped_at: new Date().toISOString(),
       }
@@ -230,8 +230,8 @@ export async function POST(req: Request) {
 
       // Also update the main company table with description if available
       await (supabase as any).from('companies').update({
-        description: result.about || result.description || result.summary,
-        tech_stack: result.specialties || []
+        description: firstItem.about || firstItem.description || firstItem.summary,
+        tech_stack: firstItem.specialties || []
       }).eq('id', (company as any).id)
 
       return NextResponse.json({ success: true, type: 'company' })
