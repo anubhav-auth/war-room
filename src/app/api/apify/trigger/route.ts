@@ -107,13 +107,14 @@ export async function POST(req: Request) {
       const discoveredEmail = data.email || (data.contacts && data.contacts[0] && data.contacts[0].email)
       
       if (discoveredEmail) {
+        // Queue email for verification
         await (supabase as any).from('email_permutations').upsert({
           contact_id: contactId,
           email: discoveredEmail,
-          status: 'pending',
-          metadata: { source: 'apify' }
+          status: 'pending'
         }, { onConflict: 'contact_id,email' })
       } else {
+        // No email found in profile - run permutations to generate candidates
         fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/emails/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -121,18 +122,20 @@ export async function POST(req: Request) {
         }).catch(err => console.error('Failed to trigger permutations:', err))
       }
 
+      // Fetch and save posts (must complete before message generation)
       const posts = await scrapePost(linkedinUrl)
       if (posts && posts.length > 0) {
         const recent_posts = posts.slice(0, 4).map((p: any) => ({
-          text: p.text,
-          url: p.postUrl,
-          date: p.postedAt,
-          likes: p.numLikes,
-          comments: p.numComments
+          text: p.text || p.resharedPost?.text,
+          url: p.url || p.resharedPost?.url,
+          date: p.postedAtISO || p.resharedPost?.postedAtISO,
+          likes: p.numLikes || p.resharedPost?.numLikes || 0,
+          comments: p.numComments || p.resharedPost?.numComments || 0
         }))
         await (supabase as any).from('linkedin_profiles').update({ recent_posts }).eq('contact_id', contactId)
       }
 
+      // After posts are saved, generate messages with full context
       await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -160,7 +163,7 @@ export async function POST(req: Request) {
       await (supabase as any).from('company_profiles').upsert(companyData)
 
       await (supabase as any).from('companies').update({
-        description: data.about || data.description || data.summary,
+        notes: data.about || data.description || data.summary,
         tech_stack: data.specialties || []
       }).eq('id', companyId)
     }

@@ -108,27 +108,6 @@ if (error) {
     }
     setSaving(false)
   }
-        } catch (err) {
-          console.error('Failed to trigger Apify:', err)
-        }
-      }
-
-      // Trigger email permutations if no email provided
-      if (!contact.email) {
-        fetch('/api/emails/generate', {
-          method: 'POST',
-          body: JSON.stringify({ contactId: contact.id, userId: user.id }),
-        }).catch(err => console.error('Failed to trigger email permutations:', err))
-      } else {
-        // Trigger immediate generation if email is provided
-        fetch('/api/generate', {
-          method: 'POST',
-          body: JSON.stringify({ contactId: contact.id, userId: user.id }),
-        }).catch(err => console.error('Failed to trigger generation:', err))
-      }
-    }
-    setSaving(false)
-  }
 
   const handleDeleteContact = async (id: string) => {
     if (!confirm('Are you sure you want to delete this contact?')) return
