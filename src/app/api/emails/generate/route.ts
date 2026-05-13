@@ -8,11 +8,13 @@ export async function POST(req: Request) {
     const body = await req.json()
     const { contactId, userId } = body
     
-    // Allow internal calls with userId parameter or authenticated user requests
+    // Allow internal calls with INTERNAL_SECRET or authenticated user requests
     let user: any = null
+    const authHeader = req.headers.get('authorization')
+    const isInternal = process.env.INTERNAL_SECRET && authHeader === `Bearer ${process.env.INTERNAL_SECRET}`
     
-    if (userId) {
-      // Internal call with userId - trust it
+    if (isInternal && userId) {
+      // Internal call with userId and valid secret - trust it
       user = { id: userId }
     } else {
       // Regular authenticated request
