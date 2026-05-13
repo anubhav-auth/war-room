@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Contact, Company, GeneratedMessage } from '@/types/database'
 import { computeNextAction, computePriorityScore, daysSinceLastTouch } from '@/lib/priority'
 import { createClient } from '@/lib/supabase/client'
@@ -11,6 +11,42 @@ export default function TodayActions({ initialContacts }: { initialContacts: (Co
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [copyStatus, setCopyStatus] = useState<Record<string, boolean>>({})
   const supabase = createClient()
+
+  async function fetchData() {
+    const { data: contactsData, error: contactsError } = await supabase
+      .from('contacts')
+      .select('*, companies(*), generated_messages(*)')
+
+    if (contactsData) {
+      setContacts(contactsData as any)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+
+    const subscription = supabase
+      .channel('today_actions_contacts')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'contacts' },
+        () => {
+          fetchData()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'generated_messages' },
+        () => {
+          fetchData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [])
 
   const sortedContacts = [...contacts]
     .filter(c => computeNextAction(c) !== '')
