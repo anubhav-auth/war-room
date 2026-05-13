@@ -3,12 +3,12 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Contact, Company } from '@/types/database'
-import { Plus, Search, Filter, Mail, ExternalLink, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { Plus, Search, Filter, Mail, ExternalLink, ChevronDown, ChevronUp, RefreshCw, Trash2 } from 'lucide-react'
 // If Linkedin is not in lucide-react, we can just use the link icon or similar, but let's check package json or just omit it if it breaks.
 import { computeNextAction, computePriorityScore } from '@/lib/priority'
 
 export default function PipelineList() {
-  const [contacts, setContacts] = useState<(Contact & { companies: Company })[]>([])
+  const [contacts, setContacts] = useState<(Contact & { companies: Company | null })[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -17,7 +17,7 @@ export default function PipelineList() {
   
   const [newContact, setNewContact] = useState<Partial<Contact>>({
     name: '',
-    company_id: '',
+    company_id: undefined,
     title: '',
     contact_type: 'cto_founder',
     linkedin_url: '',
@@ -27,10 +27,6 @@ export default function PipelineList() {
   const [saving, setSaving] = useState(false)
 
   const supabase = createClient()
-
-  useEffect(() => {
-    fetchData()
-  }, [])
 
   async function fetchData() {
     const { data: contactsData, error: contactsError } = await supabase
@@ -48,6 +44,10 @@ export default function PipelineList() {
     setLoading(false)
   }
 
+  useEffect(() => {
+    fetchData()
+  }, [])
+
   const handleAddContact = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
@@ -55,9 +55,16 @@ export default function PipelineList() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
+    // Clean up empty strings for UUID fields
+    const contactData = {
+      ...newContact,
+      user_id: user.id,
+      company_id: newContact.company_id || null
+    }
+
     const { data: contact, error } = await (supabase as any)
       .from('contacts')
-      .insert([{ ...newContact, user_id: user.id }])
+      .insert([contactData])
       .select()
       .single()
 
@@ -65,7 +72,7 @@ export default function PipelineList() {
       alert('Error adding contact: ' + error.message)
     } else if (contact) {
       setShowAddModal(false)
-      setNewContact({ name: '', company_id: '', title: '', contact_type: 'cto_founder', linkedin_url: '', email: '', notes: '' })
+      setNewContact({ name: '', company_id: undefined, title: '', contact_type: 'cto_founder', linkedin_url: '', email: '', notes: '' })
       fetchData()
       
       // Trigger Apify if LinkedIn URL is present and not already scraped
@@ -99,9 +106,24 @@ export default function PipelineList() {
     setSaving(false)
   }
 
+  const handleDeleteContact = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this contact?')) return
+    
+    const { error } = await supabase
+      .from('contacts')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      alert('Error deleting contact: ' + error.message)
+    } else {
+      fetchData()
+    }
+  }
+
   const filteredContacts = contacts.filter(contact => 
     contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    contact.companies?.name.toLowerCase().includes(searchTerm.toLowerCase())
+    contact.companies?.name?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   if (loading) return <div>Loading pipeline...</div>
@@ -150,14 +172,16 @@ export default function PipelineList() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center">
-                      <span className="text-gray-900">{contact.companies?.name}</span>
-                      <span className={`ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded uppercase ${
-                        contact.companies?.tier === 1 ? 'bg-red-100 text-red-700' :
-                        contact.companies?.tier === 2 ? 'bg-blue-100 text-blue-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>
-                        T{contact.companies?.tier}
-                      </span>
+                      <span className="text-gray-900">{contact.companies?.name || 'Auto-discovery...'}</span>
+                      {contact.companies && (
+                        <span className={`ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded uppercase ${
+                          contact.companies.tier === 1 ? 'bg-red-100 text-red-700' :
+                          contact.companies.tier === 2 ? 'bg-blue-100 text-blue-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          T{contact.companies.tier}
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -226,6 +250,12 @@ export default function PipelineList() {
                                     <Mail className="w-4 h-4 mr-2" /> {contact.email}
                                   </div>
                                 )}
+                                <button 
+                                  onClick={() => handleDeleteContact(contact.id)}
+                                  className="flex items-center text-xs text-red-600 hover:text-red-800 transition-colors pt-3 border-t mt-1"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete Contact
+                                </button>
                               </div>
                             </div>
                           </div>
