@@ -29,8 +29,13 @@ export async function GET(req: Request) {
     }
 
     const results = []
+    const processedContactIds = new Set<string>()
 
     for (const item of (pending as any[])) {
+      if (processedContactIds.has(item.contact_id)) {
+        continue
+      }
+
       try {
         // 2. Call QuickEmailVerification Single API
         const response = await fetch(`https://api.quickemailverification.com/v1/verify?email=${encodeURIComponent(item.email)}&apikey=${apiKey}`)
@@ -47,6 +52,7 @@ export async function GET(req: Request) {
             .eq('id', item.id)
 
           if (isValid) {
+            processedContactIds.add(item.contact_id)
             // 4. If valid, update contact
             await (supabase as any)
               .from('contacts')
