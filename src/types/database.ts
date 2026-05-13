@@ -345,6 +345,7 @@ export interface Database {
           contact_id: string
           email: string
           status: 'pending' | 'valid' | 'invalid' | 'catch_all' | 'unknown' | 'skipped'
+          metadata: Json | null
           created_at: string
         }
         Insert: {
@@ -352,6 +353,7 @@ export interface Database {
           contact_id: string
           email: string
           status?: 'pending' | 'valid' | 'invalid' | 'catch_all' | 'unknown' | 'skipped'
+          metadata?: Json | null
           created_at?: string
         }
         Update: {
@@ -359,7 +361,46 @@ export interface Database {
           contact_id?: string
           email?: string
           status?: 'pending' | 'valid' | 'invalid' | 'catch_all' | 'unknown' | 'skipped'
+          metadata?: Json | null
           created_at?: string
+        }
+      }
+      contact_process_logs: {
+        Row: {
+          id: string
+          contact_id: string
+          user_id: string
+          stage: 'created' | 'linkedin_scraping_triggered' | 'linkedin_scraped' | 'posts_scraped' | 'emails_generated' | 'messages_generated' | 'failed'
+          status: 'success' | 'failed' | 'pending'
+          details: Json | null
+          error: string | null
+          attempt: number | null
+          timestamp: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          contact_id: string
+          user_id: string
+          stage: 'created' | 'linkedin_scraping_triggered' | 'linkedin_scraped' | 'posts_scraped' | 'emails_generated' | 'messages_generated' | 'failed'
+          status: 'success' | 'failed' | 'pending'
+          details?: Json | null
+          error?: string | null
+          attempt?: number | null
+          timestamp?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          contact_id?: string
+          user_id?: string
+          stage?: 'created' | 'linkedin_scraping_triggered' | 'linkedin_scraped' | 'posts_scraped' | 'emails_generated' | 'messages_generated' | 'failed'
+          status?: 'success' | 'failed' | 'pending'
+          details?: Json | null
+          error?: string | null
+          attempt?: number | null
+          timestamp?: string | null
+          created_at?: string | null
         }
       }
     }
@@ -373,3 +414,4 @@ export type LinkedInProfile = Database['public']['Tables']['linkedin_profiles'][
 export type GeneratedMessage = Database['public']['Tables']['generated_messages']['Row']
 export type ActionLog = Database['public']['Tables']['actions_log']['Row']
 export type EmailPermutation = Database['public']['Tables']['email_permutations']['Row']
+export type ContactProcessLog = Database['public']['Tables']['contact_process_logs']['Row']
